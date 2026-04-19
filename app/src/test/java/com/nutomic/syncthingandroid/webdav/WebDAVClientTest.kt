@@ -1,7 +1,7 @@
 package com.nutomic.syncthingandroid.webdav
 
 import android.content.Context
-import com.github.sardine.Sardine
+import com.thegrizzlylabs.sardineandroid.Sardine
 import io.mockk.*
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*

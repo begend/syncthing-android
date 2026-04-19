@@ -18,6 +18,7 @@ import com.nutomic.syncthingandroid.service.RestApi;
 import com.nutomic.syncthingandroid.service.SyncthingRunnable;
 import com.nutomic.syncthingandroid.service.SyncthingService;
 import com.nutomic.syncthingandroid.settings.SettingsActivity;
+import com.nutomic.syncthingandroid.webdav.WebDAVSyncService;
 
 import javax.inject.Singleton;
 
@@ -45,4 +46,5 @@ public interface DaggerComponent {
     void inject(SyncthingApp app);
     void inject(SyncthingRunnable syncthingRunnable);
     void inject(SyncthingService service);
+    void inject(WebDAVSyncService service);
 }

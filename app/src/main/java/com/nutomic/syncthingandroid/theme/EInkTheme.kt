@@ -13,8 +13,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.core.view.WindowCompat
 import com.nutomic.syncthingandroid.util.EInkUtil
 
@@ -147,9 +149,12 @@ object EInkTheme {
             window.setDecorFitsSystemWindows(false)
         } else {
             @Suppress("DEPRECATION")
-            window.flags = window.flags or
-                    WindowManager.LayoutParams.FLAG_FULLSCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            )
         }
     }
 
@@ -194,11 +199,11 @@ object EInkTheme {
      */
     fun getEInkShapes(): Shapes {
         return Shapes(
-            extraSmall = 0.dp,      // No rounding for small elements
-            small = 2.dp,            // Minimal rounding for small elements
-            medium = 4.dp,           // Minimal rounding for medium elements
-            large = 6.dp,            // Minimal rounding for large elements
-            extraLarge = 8.dp        // Minimal rounding for extra large elements
+            extraSmall = RoundedCornerShape(0.dp),  // No rounding for small elements
+            small = RoundedCornerShape(2.dp),       // Minimal rounding for small elements
+            medium = RoundedCornerShape(4.dp),      // Minimal rounding for medium elements
+            large = RoundedCornerShape(6.dp),       // Minimal rounding for large elements
+            extraLarge = RoundedCornerShape(8.dp)   // Minimal rounding for extra large elements
         )
     }
 }
@@ -220,18 +225,11 @@ fun EInkApplicationTheme(
     val colorScheme = if (useEInkTheme) {
         EInkTheme.getEInkColorScheme(darkTheme)
     } else {
-        // Use standard Material 3 dynamic color
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (darkTheme)
-                MaterialTheme.dynamicDarkColorScheme(context)
-            else
-                MaterialTheme.dynamicLightColorScheme(context)
-        } else {
-            if (darkTheme)
-                darkColorScheme()
-            else
-                lightColorScheme()
-        }
+        // Use standard Material 3 color schemes
+        if (darkTheme)
+            darkColorScheme()
+        else
+            lightColorScheme()
     }
 
     val typography = if (useEInkTheme) {

@@ -42,6 +42,8 @@ sealed interface SettingsRoute : NavKey {
     @Serializable
     data object Troubleshooting : SettingsRoute
     @Serializable
+    data object WebDAVSync : SettingsRoute
+    @Serializable
     data object Experimental : SettingsRoute
     @Serializable
     data object About : SettingsRoute
@@ -60,6 +62,7 @@ sealed interface SettingsRoute : NavKey {
             "SyncthingOptions" -> SyncthingOptions
             "ImportExport" -> ImportExport
             "Troubleshooting" -> Troubleshooting
+            "WebDAVSync" -> WebDAVSync
             "Experimental" -> Experimental
             "About" -> About
             "Licenses" -> Licenses
@@ -114,6 +117,7 @@ fun SettingsNavDisplay(
             settingsSyncthingOptionsEntry()
             settingsImportExportEntry()
             settingsTroubleshootingEntry()
+            settingsWebDAVSyncEntry()
             settingsExperimentalEntry()
             settingsAboutEntry()
             licensesEntry()

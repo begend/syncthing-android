@@ -2,6 +2,7 @@ package com.nutomic.syncthingandroid.webdav
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import com.nutomic.syncthingandroid.util.EInkUtil
 
 /**

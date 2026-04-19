@@ -9,7 +9,6 @@ import android.content.Intent
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import com.nutomic.syncthingandroid.R
 import com.nutomic.syncthingandroid.util.EInkUtil
 import kotlinx.coroutines.*
@@ -138,7 +137,7 @@ class EInkNotificationManager(private val context: Context) {
     ): Notification {
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_SYNC)
             .setContentTitle("Syncing: $folderName")
-            .setSmallIcon(R.drawable.ic_sync)
+            .setSmallIcon(R.drawable.ic_stat_notify)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
@@ -197,7 +196,7 @@ class EInkNotificationManager(private val context: Context) {
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_SYNC)
             .setContentTitle("Sync Complete: $folderName")
             .setContentText(contentText)
-            .setSmallIcon(R.drawable.ic_check_circle)
+            .setSmallIcon(R.drawable.ic_stat_notify)
             .setOngoing(false)
             .setAutoCancel(true)
             .setPriority(if (conflictsCount > 0) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
@@ -238,7 +237,7 @@ class EInkNotificationManager(private val context: Context) {
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_CONFLICTS)
             .setContentTitle("Sync Conflict: $fileName")
             .setContentText("Folder: $folderName - Tap to resolve")
-            .setSmallIcon(R.drawable.ic_warning)
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
             .setContentIntent(pendingIntent)
             .setOngoing(false)
             .setAutoCancel(true)
@@ -248,12 +247,12 @@ class EInkNotificationManager(private val context: Context) {
         // Add action buttons (simplified for E-Ink)
         if (!isEInkDevice) {
             builder.addAction(
-                R.drawable.ic_check,
+                android.R.drawable.ic_menu_save,
                 "Local",
                 createConflictActionPendingIntent(conflictId, ConflictResolutionAction.LOCAL_WINS)
             )
             builder.addAction(
-                R.drawable.ic_cloud_upload,
+                android.R.drawable.stat_sys_upload,
                 "Remote",
                 createConflictActionPendingIntent(conflictId, ConflictResolutionAction.REMOTE_WINS)
             )
@@ -339,17 +338,17 @@ class EInkNotificationManager(private val context: Context) {
      */
     private fun createConflictActionPendingIntent(
         conflictId: String,
-        action: ConflictResolutionAction
+        resolutionAction: ConflictResolutionAction
     ): PendingIntent {
         val intent = Intent().apply {
-            action = "com.nutomic.syncthingandroid.RESOLVE_CONFLICT_ACTION"
+            this.action = "com.nutomic.syncthingandroid.RESOLVE_CONFLICT_ACTION"
             putExtra("conflictId", conflictId)
-            putExtra("resolutionAction", action.name)
+            putExtra("resolutionAction", resolutionAction.name)
         }
 
         return PendingIntent.getBroadcast(
             context,
-            action.hashCode(),
+            resolutionAction.hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

@@ -2,19 +2,17 @@ package com.nutomic.syncthingandroid.webdav
 
 import android.content.Context
 import android.util.Log
-import com.github.sardine.Sardine
-import com.github.sardine.SardineFactory
+import com.thegrizzlylabs.sardineandroid.DavResource
+import com.thegrizzlylabs.sardineandroid.Sardine
+import com.thegrizzlylabs.sardineandroid.impl.OkHttpSardine
 import com.nutomic.syncthingandroid.webdav.model.WebDAVFile
 import com.nutomic.syncthingandroid.webdav.model.WebDAVFileInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 /**
  * WebDAV client wrapper around Sardine-Android
@@ -102,20 +100,23 @@ class WebDAVClient(private val context: Context) {
             }
 
             // Create Sardine instance with authentication
-            sardine = when (config.authType) {
-                AuthType.BASIC -> SardineFactory.begin(
+            val newSardine = OkHttpSardine()
+
+            when (config.authType) {
+                AuthType.BASIC -> newSardine.setCredentials(
                     config.username,
                     config.password
                 )
-                AuthType.DIGEST -> SardineFactory.begin(
+                AuthType.DIGEST -> newSardine.setCredentials(
                     config.username,
-                    config.password.toCharArray()
+                    config.password
                 )
-                AuthType.NONE -> SardineFactory.begin()
+                AuthType.NONE -> {
+                    // No authentication needed
+                }
             }
 
-            // Enable compression
-            sardine?.enableCompression()
+            sardine = newSardine
 
             // Test connection by listing root directory
             val testUrl = "${config.getNormalizedUrl()}/"
@@ -179,26 +180,21 @@ class WebDAVClient(private val context: Context) {
             val remoteUrl = "${config.getNormalizedUrl()}/$remotePath"
 
             // Upload file with progress tracking
-            FileInputStream(localFile).use { inputStream ->
-                suspendCancellableCoroutine { continuation ->
-                    try {
-                        sardine?.put(
-                            remoteUrl,
-                            inputStream,
-                            localFile.length()
-                        ) { bytesWritten ->
-                            // Calculate progress percentage
-                            if (localFile.length() > 0) {
-                                val progress = (bytesWritten * 100 / localFile.length()).toInt()
-                                progressCallback?.invoke(progress)
-                            }
-                        }
+            // New API: put(String url, File localFile, String contentType)
+            try {
+                sardine?.put(
+                    remoteUrl,
+                    localFile,
+                    "application/octet-stream"
+                )
+                // For simplicity, report 100% progress immediately
+                progressCallback?.invoke(100)
 
-                        continuation.resume(Unit)
-                    } catch (e: Exception) {
-                        continuation.resumeWithException(e)
-                    }
-                }
+                Log.i(TAG, "File uploaded successfully: $remotePath")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to upload file: $remotePath", e)
+                Result.failure(e)
             }
 
             Log.i(TAG, "File uploaded successfully: $remotePath")
@@ -262,6 +258,8 @@ class WebDAVClient(private val context: Context) {
                             progressCallback?.invoke(progress)
                         }
                     }
+                    outputStream.flush()
+                    outputStream.fd.sync()
                 }
             }
 
@@ -299,14 +297,14 @@ class WebDAVClient(private val context: Context) {
 
             // Convert Sardine resources to WebDAVFile objects
             val files = resources
-                .filter { it.path != path } // Exclude parent directory entry
+                .filter { it.path.toString() != path } // Exclude parent directory entry
                 .map { resource ->
-                    val fileName = resource.path?.trimEnd('/')?.split('/')?.lastOrNull() ?: "Unknown"
+                    val fileName = resource.path.toString().trimEnd('/').split('/').lastOrNull() ?: "Unknown"
                     WebDAVFile(
                         name = fileName,
-                        path = resource.path?.trimEnd('/') ?: "",
-                        isDirectory = resource.isDirectory ?: false,
-                        size = resource.contentLength ?: 0,
+                        path = resource.path.toString().trimEnd('/'),
+                        isDirectory = resource.isDirectory,
+                        size = resource.contentLength,
                         lastModified = resource.modified?.time ?: 0,
                         etag = resource.etag,
                         contentType = resource.contentType

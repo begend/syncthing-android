@@ -17,23 +17,21 @@ object EInkUtil {
     private const val TAG = "EInkUtil"
 
     // Known E-Ink device manufacturers and models
-    private val E_INK_MANUFACTURERS = listOf(
+    internal val E_INK_MANUFACTURERS = listOf(
         "onyx",     // Onyx Boox
         "fiction",  // Onyx Boox (alternative)
-        "android",  // Generic Android (fallback)
         "kobo",     // Kobo
         "pocketbook", // PocketBook
         "tolino",   // Tolino
         "sony",     // Sony PRS
         "amazon",   // Kindle (old)
-        "asus",     // Some Asus models have E-Ink displays
         "hisense",  // Hisense A5/A9 Pro CC
         "bigme",    // Bigme
         "fujitsu",  // Fujitsu Quaderno
         "reMarkable" // reMarkable tablets
     )
 
-    private val E_INK_DEVICE_PREFIXES = listOf(
+    internal val E_INK_DEVICE_PREFIXES = listOf(
         "onyx",
         "eboox",   // Onyx Boox variations
         "kindle",  // Kindle devices
@@ -53,6 +51,10 @@ object EInkUtil {
         "ro.build.product.e-ink"
     )
 
+    private fun normalizeBuildValue(value: String?): String {
+        return value?.lowercase().orEmpty()
+    }
+
     /**
      * Check if current device has an E-Ink display
      *
@@ -61,21 +63,21 @@ object EInkUtil {
      */
     fun isEInkDevice(context: Context): Boolean {
         // Check manufacturer
-        val manufacturer = Build.MANUFACTURER.lowercase()
+        val manufacturer = normalizeBuildValue(Build.MANUFACTURER)
         if (E_INK_MANUFACTURERS.any { manufacturer.contains(it) }) {
             Log.d(TAG, "Detected E-Ink device by manufacturer: $manufacturer")
             return true
         }
 
         // Check device name
-        val device = Build.DEVICE.lowercase()
+        val device = normalizeBuildValue(Build.DEVICE)
         if (E_INK_DEVICE_PREFIXES.any { device.startsWith(it) }) {
             Log.d(TAG, "Detected E-Ink device by device name: $device")
             return true
         }
 
         // Check model name
-        val model = Build.MODEL.lowercase()
+        val model = normalizeBuildValue(Build.MODEL)
         if (E_INK_DEVICE_PREFIXES.any { model.contains(it) }) {
             Log.d(TAG, "Detected E-Ink device by model name: $model")
             return true
@@ -353,8 +355,8 @@ object EInkUtil {
      * @return Device brand or "unknown"
      */
     fun getEInkBrand(context: Context): String {
-        val manufacturer = Build.MANUFACTURER.lowercase()
-        val model = Build.MODEL.lowercase()
+        val manufacturer = normalizeBuildValue(Build.MANUFACTURER)
+        val model = normalizeBuildValue(Build.MODEL)
 
         return when {
             manufacturer.contains("onyx") || model.contains("eboox") -> "onyx"
@@ -402,9 +404,9 @@ object EInkUtil {
      * @return true if device is Onyx Boox
      */
     fun isOnyxBoox(context: Context): Boolean {
-        val manufacturer = Build.MANUFACTURER.lowercase()
-        val model = Build.MODEL.lowercase()
-        val device = Build.DEVICE.lowercase()
+        val manufacturer = normalizeBuildValue(Build.MANUFACTURER)
+        val model = normalizeBuildValue(Build.MODEL)
+        val device = normalizeBuildValue(Build.DEVICE)
 
         return manufacturer.contains("onyx") ||
                manufacturer.contains("fiction") ||
@@ -425,7 +427,7 @@ object EInkUtil {
         }
 
         // Most Onyx Boox devices support WACOM pen
-        val model = Build.MODEL.lowercase()
+        val model = normalizeBuildValue(Build.MODEL)
         return model.contains("note") ||
                model.contains("tab") ||
                model.contains("palma") ||

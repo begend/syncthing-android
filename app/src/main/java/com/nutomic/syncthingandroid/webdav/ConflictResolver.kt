@@ -51,7 +51,7 @@ class ConflictResolver(private val context: Context) {
             }
 
             // Case 2: Both deleted
-            if (!localFile.exists()) {
+            if (!File(localFile.path).exists()) {
                 // Local file doesn't exist, check remote
                 // This would be handled by the sync engine
                 return@withContext null
@@ -172,7 +172,7 @@ class ConflictResolver(private val context: Context) {
      * @param side Conflict side (local or remote)
      * @return Conflict copy path
      */
-    private fun generateConflictCopyPath(
+    internal fun generateConflictCopyPath(
         originalPath: String,
         timestamp: String,
         side: String

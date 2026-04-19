@@ -65,6 +65,13 @@ fun SettingsRootScreen() {
         }
         item {
             Preference(
+                title = { Text(stringResource(R.string.category_webdav_sync)) },
+                summary = { Text(stringResource(R.string.category_webdav_sync_summary)) },
+                onClick = { navigator.navigateTo(SettingsRoute.WebDAVSync) },
+            )
+        }
+        item {
+            Preference(
                 title = { Text(stringResource(R.string.category_debug)) },
                 onClick = { navigator.navigateTo(SettingsRoute.Troubleshooting) },
             )

@@ -3,7 +3,7 @@ package com.nutomic.syncthingandroid.webdav
 import android.content.Context
 import android.util.Log
 import com.nutomic.syncthingandroid.util.EInkUtil
-import com.nutomic.syncthingandroid.webdav.model.SyncProgress
+import com.nutomic.syncthingandroid.webdav.model.SyncFolderConfig
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,14 +51,8 @@ class EInkSyncManager(private val context: Context) {
             return config
         }
 
-        return config.copy(
-            // Use larger batch size to reduce UI updates
-            syncMode = if (config.syncMode == com.nutomic.syncthingandroid.webdav.model.SyncMode.BIDIRECTIONAL) {
-                com.nutomic.syncthingandroid.webdav.model.SyncMode.BIDIRECTIONAL
-            } else {
-                config.syncMode
-            }
-        )
+        // The current config model has no E-Ink-specific knobs yet.
+        return config
     }
 
     /**

@@ -18,6 +18,8 @@ import com.nutomic.syncthingandroid.activities.SyncthingActivity
 import com.nutomic.syncthingandroid.service.NotificationHandler
 import com.nutomic.syncthingandroid.service.SyncthingService
 import com.nutomic.syncthingandroid.theme.ApplicationTheme
+import com.nutomic.syncthingandroid.webdav.persistence.repository.SyncStateRepository
+import com.nutomic.syncthingandroid.webdav.persistence.repository.WebDAVConfigRepository
 import jakarta.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +31,12 @@ val LocalActivityScope = staticCompositionLocalOf<CoroutineScope> {
 }
 val LocalSyncthingService = staticCompositionLocalOf<SyncthingService?> { null }
 val LocalServiceUpdateTick = staticCompositionLocalOf { 0 }
+val LocalWebDAVConfigRepository = staticCompositionLocalOf<WebDAVConfigRepository> {
+    error("No WebDAVConfigRepository provided")
+}
+val LocalSyncStateRepository = staticCompositionLocalOf<SyncStateRepository> {
+    error("No SyncStateRepository provided")
+}
 
 class SettingsActivity : SyncthingActivity() {
 
@@ -37,6 +45,10 @@ class SettingsActivity : SyncthingActivity() {
     lateinit var prefFlow: MutableStateFlow<Preferences>
     @Inject
     lateinit var notificationHandler: NotificationHandler
+    @Inject
+    lateinit var webDAVConfigRepository: WebDAVConfigRepository
+    @Inject
+    lateinit var syncStateRepository: SyncStateRepository
 
     private var syncthingServiceState by mutableStateOf<SyncthingService?>(service)
 
@@ -82,6 +94,8 @@ class SettingsActivity : SyncthingActivity() {
                     LocalSettingsNavigator provides navigator,
                     LocalSyncthingService provides syncthingServiceState,
                     LocalServiceUpdateTick provides serviceUpdateTick,
+                    LocalWebDAVConfigRepository provides webDAVConfigRepository,
+                    LocalSyncStateRepository provides syncStateRepository,
                 ) {
                     ProvidePreferenceLocals(flow = prefFlow) {
                         SettingsNavDisplay(

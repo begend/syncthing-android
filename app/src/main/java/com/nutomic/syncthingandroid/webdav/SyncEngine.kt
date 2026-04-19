@@ -154,7 +154,7 @@ class SyncEngine(
 
         // Create lookup maps
         val localFileMap = localFiles.associateBy { it.relativePath(folderConfig.localPath) }
-        val remoteFileMap = remoteFiles.associate { it.path }
+        val remoteFileMap = remoteFiles.associateBy { it.path }
 
         // Detect local changes
         for (localFile in localFiles) {
@@ -459,7 +459,6 @@ class SyncEngine(
         return webDAVClient.uploadFile(localFile.path, remotePath)
             .onSuccess {
                 syncedFiles.add(localFile.path)
-                bytesTransferred + localFile.size
                 Log.d(TAG, "Uploaded: $relativePath")
             }
             .onFailure { e ->
@@ -484,7 +483,6 @@ class SyncEngine(
         return webDAVClient.downloadFile(remoteFile.path, localPath)
             .onSuccess {
                 syncedFiles.add(remoteFile.path)
-                bytesTransferred + remoteFile.size
                 Log.d(TAG, "Downloaded: $relativePath")
             }
             .onFailure { e ->

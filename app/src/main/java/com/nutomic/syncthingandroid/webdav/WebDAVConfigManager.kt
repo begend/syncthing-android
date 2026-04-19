@@ -96,10 +96,14 @@ class WebDAVConfigManager(private val context: Context) {
 
         return try {
             WebDAVClient.ConnectionConfig(
-                serverUrl = serverUrl,
-                username = username,
+                serverUrl = serverUrl ?: "",
+                username = username ?: "",
                 password = decryptPassword(encryptedPassword),
-                authType = WebDAVClient.AuthType.valueOf(authTypeName),
+                authType = try {
+                    WebDAVClient.AuthType.valueOf(authTypeName ?: "BASIC")
+                } catch (e: IllegalArgumentException) {
+                    WebDAVClient.AuthType.BASIC
+                },
                 connectTimeoutMs = connectTimeout,
                 readTimeoutMs = readTimeout
             )

@@ -48,7 +48,7 @@ zxing-core = "3.3.0"
 
 # WebDAV sync versions
 sardine = "5.10"
-room = "2.6.1"
+room = "2.7.1"
 
 # Testing versions
 junit = "4.13.2"

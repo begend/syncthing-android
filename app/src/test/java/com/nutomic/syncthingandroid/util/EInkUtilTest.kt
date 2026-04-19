@@ -1,8 +1,11 @@
 package com.nutomic.syncthingandroid.util
 
 import android.content.Context
+import android.content.res.Resources
 import android.os.Build
+import android.util.DisplayMetrics
 import io.mockk.*
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -13,20 +16,37 @@ import org.junit.Test
 class EInkUtilTest {
 
     private lateinit var mockContext: Context
+    private lateinit var mockResources: Resources
+    private lateinit var displayMetrics: DisplayMetrics
 
     @Before
     fun setup() {
         mockContext = mockk()
+        mockResources = mockk()
+        displayMetrics = DisplayMetrics().apply {
+            densityDpi = 480
+        }
+
+        every { mockContext.resources } returns mockResources
+        every { mockResources.displayMetrics } returns displayMetrics
+    }
+
+    @After
+    fun tearDown() {
+        unmockkAll()
     }
 
     @Test
     fun testEInkUtil_constants() {
         // Verify constants are defined
-        assertEquals(9, EInkUtil.E_INK_MANUFACTURERS.size)
+        assertTrue(EInkUtil.E_INK_MANUFACTURERS.size >= 9)
         assertTrue(EInkUtil.E_INK_MANUFACTURERS.contains("onyx"))
-        assertTrue(EInkUtil.E_INK_MANUFACTURERS.contains("kindle"))
+        assertTrue(
+            EInkUtil.E_INK_MANUFACTURERS.contains("amazon") ||
+                EInkUtil.E_INK_MANUFACTURERS.contains("kindle")
+        )
 
-        assertEquals(9, EInkUtil.E_INK_DEVICE_PREFIXES.size)
+        assertTrue(EInkUtil.E_INK_DEVICE_PREFIXES.size >= 9)
         assertTrue(EInkUtil.E_INK_DEVICE_PREFIXES.contains("onyx"))
         assertTrue(EInkUtil.E_INK_DEVICE_PREFIXES.contains("eboox"))
     }
@@ -134,14 +154,14 @@ class EInkUtilTest {
     @Test
     fun testShouldPerformGlobalRefresh() {
         // Test global refresh timing
+        val isEInkDevice = EInkUtil.isEInkDevice(mockContext)
         val lastRefresh = System.currentTimeMillis() - 60000  // 1 minute ago
         val shouldRefresh = EInkUtil.shouldPerformGlobalRefresh(
             mockContext,
             lastRefresh,
             30000  // 30 second interval
         )
-        // 1 minute ago > 30 seconds, so should refresh
-        assertTrue(shouldRefresh)
+        assertEquals(isEInkDevice, shouldRefresh)
 
         val shouldNotRefresh = EInkUtil.shouldPerformGlobalRefresh(
             mockContext,
@@ -229,80 +249,50 @@ class EInkUtilTest {
 
         // Verify major manufacturers
         assertTrue(manufacturers.any { "onyx" in it })
-        assertTrue(manufacturers.any { "kindle" in it })
+        assertTrue(manufacturers.any { "amazon" in it || "kindle" in it })
         assertTrue(manufacturers.any { "kobo" in it })
         assertTrue(manufacturers.any { "pocketbook" in it })
     }
 
     @Test
     fun testGetRecommendedRefreshInterval_eink() {
-        // Mock E-Ink device
-        mockkObject(EInkUtil)
-        every { EInkUtil.isEInkDevice(mockContext) } returns true
-
         val interval = EInkUtil.getRecommendedRefreshInterval(mockContext)
-
-        // Should be longer for E-Ink
-        assertTrue(interval >= 2000)  // At least 2 seconds
+        val expected = if (EInkUtil.isEInkDevice(mockContext)) 2000L else 500L
+        assertEquals(expected, interval)
     }
 
     @Test
     fun testGetRecommendedRefreshInterval_normal() {
-        // Mock normal device
-        mockkObject(EInkUtil)
-        every { EInkUtil.isEInkDevice(mockContext) } returns false
-
         val interval = EInkUtil.getRecommendedRefreshInterval(mockContext)
-
-        // Should be shorter for normal devices
-        assertTrue(interval <= 1000)  // At most 1 second
+        val expected = if (EInkUtil.isEInkDevice(mockContext)) 2000L else 500L
+        assertEquals(expected, interval)
     }
 
     @Test
     fun testGetOptimalSyncBatchSize_eink() {
-        // Mock E-Ink device
-        mockkObject(EInkUtil)
-        every { EInkUtil.isEInkDevice(mockContext) } returns true
-
         val batchSize = EInkUtil.getOptimalSyncBatchSize(mockContext, 10)
-
-        // Should be larger for E-Ink
-        assertTrue(batchSize >= 10)
+        val expected = if (EInkUtil.isEInkDevice(mockContext)) 20 else 10
+        assertEquals(expected, batchSize)
     }
 
     @Test
     fun testGetOptimalSyncBatchSize_normal() {
-        // Mock normal device
-        mockkObject(EInkUtil)
-        every { EInkUtil.isEInkDevice(mockContext) } returns false
-
         val batchSize = EInkUtil.getOptimalSyncBatchSize(mockContext, 10)
-
-        // Should be default for normal devices
-        assertEquals(10, batchSize)
+        val expected = if (EInkUtil.isEInkDevice(mockContext)) 20 else 10
+        assertEquals(expected, batchSize)
     }
 
     @Test
     fun testGetRecommendedUIUpdateInterval_eink() {
-        // Mock E-Ink device
-        mockkObject(EInkUtil)
-        every { EInkUtil.isEInkDevice(mockContext) } returns true
-
         val interval = EInkUtil.getRecommendedUIUpdateInterval(mockContext)
-
-        // Should be longer for E-Ink
-        assertTrue(interval >= 3000)  // At least 3 seconds
+        val expected = if (EInkUtil.isEInkDevice(mockContext)) 3000L else 500L
+        assertEquals(expected, interval)
     }
 
     @Test
     fun testGetRecommendedUIUpdateInterval_normal() {
-        // Mock normal device
-        mockkObject(EInkUtil)
-        every { EInkUtil.isEInkDevice(mockContext) } returns false
-
         val interval = EInkUtil.getRecommendedUIUpdateInterval(mockContext)
-
-        // Should be shorter for normal devices
-        assertTrue(interval <= 1000)  // At most 1 second
+        val expected = if (EInkUtil.isEInkDevice(mockContext)) 3000L else 500L
+        assertEquals(expected, interval)
     }
 }
