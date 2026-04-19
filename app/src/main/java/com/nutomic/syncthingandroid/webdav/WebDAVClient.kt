@@ -10,9 +10,11 @@ import com.nutomic.syncthingandroid.webdav.model.WebDAVFileInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /**
  * WebDAV client wrapper around Sardine-Android
@@ -99,8 +101,15 @@ class WebDAVClient(private val context: Context) {
                 )
             }
 
-            // Create Sardine instance with authentication
-            val newSardine = OkHttpSardine()
+            // Create Sardine instance backed by an OkHttp client that honors the
+            // per-server timeout settings exposed in the UI.
+            val okHttpClient = OkHttpClient.Builder()
+                .connectTimeout(config.connectTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                .readTimeout(config.readTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                .writeTimeout(config.readTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                .retryOnConnectionFailure(true)
+                .build()
+            val newSardine = OkHttpSardine(okHttpClient)
 
             when (config.authType) {
                 AuthType.BASIC -> newSardine.setCredentials(
@@ -279,7 +288,7 @@ class WebDAVClient(private val context: Context) {
      */
     suspend fun listDirectory(path: String): Result<List<WebDAVFile>> = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Listing directory: $path")
+            Log.d(TAG, "Listing directory path=$path")
 
             val config = currentConfig
                 ?: return@withContext Result.failure(
@@ -287,11 +296,25 @@ class WebDAVClient(private val context: Context) {
                 )
 
             val url = "${config.getNormalizedUrl()}/$path"
+            val startedAt = System.currentTimeMillis()
+            Log.i(TAG, "PROPFIND listDirectory url=$url")
             val resources = sardine?.list(url)
+            val elapsedMs = System.currentTimeMillis() - startedAt
 
             if (resources == null) {
                 return@withContext Result.failure(
                     IOException("Failed to list directory: no response")
+                )
+            }
+
+            Log.i(
+                TAG,
+                "PROPFIND completed path=$path url=$url elapsedMs=$elapsedMs rawResourceCount=${resources.size}"
+            )
+            resources.take(8).forEachIndexed { index, resource ->
+                Log.d(
+                    TAG,
+                    "PROPFIND[$index] rawPath=${resource.path} directory=${resource.isDirectory} size=${resource.contentLength} etag=${resource.etag}"
                 )
             }
 
@@ -311,7 +334,13 @@ class WebDAVClient(private val context: Context) {
                     )
                 }
 
-            Log.d(TAG, "Listed ${files.size} items in directory: $path")
+            Log.d(TAG, "Listed ${files.size} items in directory path=$path")
+            files.take(8).forEachIndexed { index, file ->
+                Log.d(
+                    TAG,
+                    "LIST[$index] normalizedPath=${file.path} directory=${file.isDirectory} size=${file.size} etag=${file.etag}"
+                )
+            }
             Result.success(files)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to list directory: $path", e)

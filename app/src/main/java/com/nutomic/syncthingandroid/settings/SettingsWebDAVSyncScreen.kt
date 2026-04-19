@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -290,6 +292,7 @@ private fun WebDAVServerDialog(
     var connectionStatus by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val showsHttpRiskWarning = baseUrl.trim().startsWith("http://", ignoreCase = true)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -314,6 +317,12 @@ private fun WebDAVServerDialog(
                     isError = baseUrlError != null,
                     supportingText = baseUrlError?.let { { Text(it) } },
                 )
+                if (showsHttpRiskWarning) {
+                    Text(
+                        text = stringResource(R.string.webdav_http_risk_warning),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 OutlinedTextField(
                     value = username,
                     onValueChange = {
@@ -651,6 +660,10 @@ private fun startWebDAVService(
     action: String,
     folderId: String? = null,
 ) {
+    Log.i(
+        "SettingsWebDAVSync",
+        "Requesting WebDAV sync action=$action folderId=$folderId triggerReason=manual"
+    )
     val intent = Intent(context, WebDAVSyncService::class.java).apply {
         this.action = action
         if (folderId != null) {

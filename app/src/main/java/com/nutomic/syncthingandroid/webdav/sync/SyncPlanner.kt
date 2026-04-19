@@ -27,6 +27,10 @@ class SyncPlanner @Inject constructor() {
             val localFiles = scanLocalFiles(folderConfig.localPath)
             val remoteFiles = scanRemoteFiles(folderConfig.remotePath, webDAVClient).getOrThrow()
             val snapshotMap = previousEntries.associateBy { it.relativePath }
+            Log.i(
+                TAG,
+                "Planning folder=${folderConfig.id} localRoot=${folderConfig.localPath} remoteRoot=${folderConfig.remotePath} localFiles=${localFiles.size} remoteFiles=${remoteFiles.size} previousEntries=${previousEntries.size}"
+            )
 
             val allPaths = linkedSetOf<String>()
             allPaths.addAll(localFiles.keys)
@@ -44,6 +48,11 @@ class SyncPlanner @Inject constructor() {
                         remote = remoteFiles[relativePath],
                     )
                 }
+
+            Log.i(
+                TAG,
+                "Planned ${actions.size} actions for folder=${folderConfig.id}: ${actions.take(8).joinToString { describeAction(it) }}"
+            )
 
             Result.success(
                 SyncPlan(
@@ -205,7 +214,16 @@ class SyncPlanner @Inject constructor() {
         webDAVClient: WebDAVClient,
     ): Result<Map<String, WebDAVFile>> {
         val results = linkedMapOf<String, WebDAVFile>()
-        return scanRemoteDirectory(remoteRoot.trimEnd('/'), remoteRoot.trimEnd('/'), webDAVClient, results)
+        val normalizedRoot = normalizeRemoteDirectoryPath(remoteRoot)
+        val visitedDirectories = linkedSetOf<String>()
+        return scanRemoteDirectory(
+            remoteRoot = normalizedRoot,
+            currentPath = normalizedRoot,
+            webDAVClient = webDAVClient,
+            collector = results,
+            visitedDirectories = visitedDirectories,
+            depth = 0,
+        )
             .map { results }
     }
 
@@ -214,26 +232,83 @@ class SyncPlanner @Inject constructor() {
         currentPath: String,
         webDAVClient: WebDAVClient,
         collector: MutableMap<String, WebDAVFile>,
+        visitedDirectories: MutableSet<String>,
+        depth: Int,
     ): Result<Unit> {
-        val resources = webDAVClient.listDirectory(currentPath).getOrElse { error ->
-            return Result.failure(error)
+        val normalizedCurrentPath = normalizeRemoteDirectoryPath(currentPath)
+        Log.i(
+            TAG,
+            "Scanning remote directory depth=$depth currentPath=$currentPath normalizedCurrentPath=$normalizedCurrentPath remoteRoot=$remoteRoot visited=${visitedDirectories.size} collected=${collector.size}"
+        )
+        if (!visitedDirectories.add(normalizedCurrentPath)) {
+            Log.w(
+                TAG,
+                "Skipping already visited remote directory depth=$depth currentPath=$normalizedCurrentPath visited=${visitedDirectories.size}"
+            )
+            return Result.success(Unit)
         }
 
-        resources.forEach { remoteFile ->
-            val relativePath = remoteFile.path.removePrefix(remoteRoot).trimStart('/')
+        val resources = webDAVClient.listDirectory(normalizedCurrentPath).getOrElse { error ->
+            Log.e(TAG, "Failed to list remote directory currentPath=$currentPath remoteRoot=$remoteRoot", error)
+            return Result.failure(error)
+        }
+        Log.d(
+            TAG,
+            "Listed remote directory depth=$depth currentPath=$normalizedCurrentPath entries=${resources.size}"
+        )
+
+        resources.forEachIndexed { index, remoteFile ->
+            val normalizedRemotePath = normalizeRemoteResourcePath(remoteFile.path)
+            val relativePath = normalizedRemotePath.removePrefix(remoteRoot).trimStart('/')
+            if (index < 12) {
+                Log.d(
+                    TAG,
+                    "REMOTE[$depth][$index] rawPath=${remoteFile.path} normalizedPath=$normalizedRemotePath relativePath=$relativePath directory=${remoteFile.isDirectory} size=${remoteFile.size} etag=${remoteFile.etag}"
+                )
+            }
             if (relativePath.isBlank()) {
-                return@forEach
+                Log.d(
+                    TAG,
+                    "Skipping blank relative path depth=$depth rawPath=${remoteFile.path} normalizedPath=$normalizedRemotePath remoteRoot=$remoteRoot"
+                )
+                return@forEachIndexed
             }
 
             if (remoteFile.isDirectory) {
-                val nestedResult = scanRemoteDirectory(remoteRoot, remoteFile.path, webDAVClient, collector)
+                val normalizedDirectoryPath = normalizeRemoteDirectoryPath(normalizedRemotePath)
+                if (normalizedDirectoryPath == normalizedCurrentPath) {
+                    Log.w(
+                        TAG,
+                        "Skipping self-referencing remote directory depth=$depth rawPath=${remoteFile.path} normalizedDirectoryPath=$normalizedDirectoryPath"
+                    )
+                    return@forEachIndexed
+                }
+                val nestedResult = scanRemoteDirectory(
+                    remoteRoot = remoteRoot,
+                    currentPath = normalizedDirectoryPath,
+                    webDAVClient = webDAVClient,
+                    collector = collector,
+                    visitedDirectories = visitedDirectories,
+                    depth = depth + 1,
+                )
                 if (nestedResult.isFailure) {
                     return nestedResult
                 }
             } else {
+                if (collector.containsKey(relativePath)) {
+                    Log.w(
+                        TAG,
+                        "Replacing existing remote file snapshot depth=$depth relativePath=$relativePath oldPath=${collector[relativePath]?.path} newPath=${remoteFile.path}"
+                    )
+                }
                 collector[relativePath] = remoteFile
             }
         }
+
+        Log.i(
+            TAG,
+            "Finished scanning depth=$depth currentPath=$normalizedCurrentPath visited=${visitedDirectories.size} collected=${collector.size}"
+        )
 
         return Result.success(Unit)
     }
@@ -251,9 +326,34 @@ class SyncPlanner @Inject constructor() {
         return File(localRoot, relativePath).absolutePath
     }
 
+    private fun normalizeRemoteDirectoryPath(path: String): String {
+        val normalized = normalizeRemoteResourcePath(path)
+        return if (normalized.endsWith("/")) normalized else "$normalized/"
+    }
+
+    private fun normalizeRemoteResourcePath(path: String): String {
+        val raw = path.substringBefore('?').substringBefore('#')
+        val collapsed = raw.replace(Regex("/{2,}"), "/").trim()
+        return when {
+            collapsed.isEmpty() -> "/"
+            collapsed.startsWith("/") -> collapsed
+            else -> "/$collapsed"
+        }
+    }
+
     internal enum class EntryState {
         SAME,
         CHANGED,
         MISSING,
+    }
+
+    private fun describeAction(action: PlannedSyncAction): String {
+        return when (action) {
+            is PlannedSyncAction.Upload -> "upload:${action.relativePath}"
+            is PlannedSyncAction.Download -> "download:${action.relativePath}"
+            is PlannedSyncAction.DeleteRemote -> "deleteRemote:${action.relativePath}"
+            is PlannedSyncAction.DeleteLocal -> "deleteLocal:${action.relativePath}"
+            is PlannedSyncAction.Conflict -> "conflict:${action.relativePath}:${action.conflictType}"
+        }
     }
 }

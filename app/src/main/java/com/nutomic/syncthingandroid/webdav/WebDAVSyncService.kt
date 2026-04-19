@@ -26,8 +26,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import java.net.SocketTimeoutException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -86,6 +89,10 @@ class WebDAVSyncService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.i(
+            TAG,
+            "onStartCommand action=${intent?.action} startId=$startId folderId=${intent?.getStringExtra(WebDAVSyncAction.EXTRA_FOLDER_ID)} triggerReason=${intent?.getStringExtra(WebDAVSyncAction.EXTRA_TRIGGER_REASON)}"
+        )
         when (intent?.action) {
             WebDAVSyncAction.ACTION_SYNC_FOLDER,
             WebDAVSyncAction.ACTION_RETRY_FOLDER -> {
@@ -130,6 +137,7 @@ class WebDAVSyncService : Service() {
                 return@launch
             }
 
+            Log.i(TAG, "Starting ACTION_SYNC_ALL for ${enabledFolders.size} folders")
             enabledFolders.forEach { folder ->
                 startFolderSync(folder.id, "sync_all")
             }
@@ -142,11 +150,13 @@ class WebDAVSyncService : Service() {
             return
         }
 
+        Log.i(TAG, "Queueing folder sync folderId=$folderId triggerReason=$triggerReason")
         webDAVSyncScheduler.cancelRetry(applicationContext, folderId)
 
         val runId = UUID.randomUUID().toString()
         val job = serviceScope.launch {
             activeRunIds[folderId] = runId
+            Log.i(TAG, "Starting folder sync runId=$runId folderId=$folderId")
             startForeground(NOTIFICATION_ID, buildNotification(folderId, "Queued"))
             var webDAVClient: WebDAVClient? = null
 
@@ -177,6 +187,10 @@ class WebDAVSyncService : Service() {
                     ?: error("Server config not found for ${folder.serverId}")
                 val eInkProfile = eInkProfileResolver.resolve(applicationContext)
                 val pendingCheckpoints = syncStateRepository.getCheckpointsForFolder(folderId)
+                Log.i(
+                    TAG,
+                    "Loaded folder config folderId=${folder.id} localPath=${folder.localPath} remotePath=${folder.remotePath} enabled=${folder.enabled} serverUrl=${server.baseUrl} pendingCheckpoints=${pendingCheckpoints.size}"
+                )
                 val executionDecision = syncExecutionPolicyEvaluator.evaluate(
                     context = applicationContext,
                     profile = eInkProfile,
@@ -243,22 +257,36 @@ class WebDAVSyncService : Service() {
                 val authType = runCatching {
                     WebDAVClient.AuthType.valueOf(server.authType)
                 }.getOrDefault(WebDAVClient.AuthType.BASIC)
+                val connectTimeoutMs = computeConnectStageTimeoutMs(server.connectTimeoutMs, server.readTimeoutMs)
+                val planTimeoutMs = computePlanStageTimeoutMs(server.connectTimeoutMs, server.readTimeoutMs)
 
-                webDAVClient.connect(
-                    WebDAVClient.ConnectionConfig(
-                        serverUrl = server.baseUrl,
-                        username = server.username,
-                        // Phase 1 keeps this field as a placeholder until secure credential storage lands.
-                        password = server.passwordAlias,
-                        authType = authType,
-                        connectTimeoutMs = server.connectTimeoutMs,
-                        readTimeoutMs = server.readTimeoutMs,
+                runStageWithTimeout("connecting to WebDAV server", connectTimeoutMs) {
+                    webDAVClient.connect(
+                        WebDAVClient.ConnectionConfig(
+                            serverUrl = server.baseUrl,
+                            username = server.username,
+                            // Phase 1 keeps this field as a placeholder until secure credential storage lands.
+                            password = server.passwordAlias,
+                            authType = authType,
+                            connectTimeoutMs = server.connectTimeoutMs,
+                            readTimeoutMs = server.readTimeoutMs,
+                        )
                     )
+                        .getOrThrow()
+                }
+                Log.i(
+                    TAG,
+                    "Connected WebDAV server for folder=${folder.id} authType=$authType baseUrl=${server.baseUrl} connectTimeoutMs=$connectTimeoutMs"
                 )
-                    .getOrThrow()
 
-                val syncPlan = syncPlanner.planFolderSync(folder, existingEntries, webDAVClient).getOrThrow()
+                val syncPlan = runStageWithTimeout("planning WebDAV sync", planTimeoutMs) {
+                    syncPlanner.planFolderSync(folder, existingEntries, webDAVClient).getOrThrow()
+                }
                 Log.i(TAG, "WebDAV sync plan for folder=${folder.id}: ${syncPlan.summary()}")
+                Log.i(
+                    TAG,
+                    "Action preview for folder=${folder.id}: ${syncPlan.actions.take(5).joinToString { it.debugLabel() }} planTimeoutMs=$planTimeoutMs"
+                )
                 if (pendingCheckpoints.isNotEmpty()) {
                     Log.i(TAG, "Recovered ${pendingCheckpoints.size} checkpoints for folder=${folder.id}")
                 }
@@ -328,6 +356,10 @@ class WebDAVSyncService : Service() {
                         decisionReason = "retryable execution failure",
                     )
                 }
+                Log.i(
+                    TAG,
+                    "Finished folder sync runId=$runId folderId=$folderId state=$finalState result=${executionResult.summary()} failures=${executionResult.failureMessages.joinToString(limit = 5)}"
+                )
                 updateForegroundNotification(
                     folderId = folderId,
                     contentText = "Executed ${executionResult.successfulActions}/${syncPlan.actions.size} actions",
@@ -345,6 +377,7 @@ class WebDAVSyncService : Service() {
                     endedAt = System.currentTimeMillis(),
                     errorSummary = cancelled.message,
                 )
+                Log.w(TAG, "Cancelled folder sync runId=$runId folderId=$folderId reason=${cancelled.message}")
                 startForeground(
                     NOTIFICATION_ID,
                     buildNotification(folderId, "Sync cancelled")
@@ -353,6 +386,10 @@ class WebDAVSyncService : Service() {
             } catch (t: Throwable) {
                 Log.e(TAG, "WebDAV sync failed for folder $folderId", t)
                 val classifiedError = WebDAVError.classify(t)
+                Log.e(
+                    TAG,
+                    "Classified sync failure runId=$runId folderId=$folderId retryable=${classifiedError.retryable} type=${classifiedError::class.simpleName} message=${classifiedError.messageText}",
+                )
                 syncStateRepository.markInProgressCheckpointsInterrupted(
                     folderId = folderId,
                     errorSummary = classifiedError.messageText,
@@ -380,6 +417,7 @@ class WebDAVSyncService : Service() {
                 }
             } finally {
                 webDAVClient?.disconnect()
+                Log.i(TAG, "Cleaning up folder sync runId=$runId folderId=$folderId")
                 activeFolderJobs.remove(folderId)
                 activeRunIds.remove(folderId)
                 lastNotificationUpdateByFolder.remove(folderId)
@@ -479,6 +517,7 @@ class WebDAVSyncService : Service() {
     }
 
     override fun onDestroy() {
+        Log.i(TAG, "onDestroy activeJobs=${activeFolderJobs.size}")
         activeFolderJobs.values.forEach { it.cancel() }
         activeFolderJobs.clear()
         activeRunIds.clear()
@@ -486,4 +525,38 @@ class WebDAVSyncService : Service() {
         serviceScope.cancel()
         super.onDestroy()
     }
+}
+
+private fun PlannedSyncAction.debugLabel(): String {
+    return when (this) {
+        is PlannedSyncAction.Upload -> "upload:$relativePath"
+        is PlannedSyncAction.Download -> "download:$relativePath"
+        is PlannedSyncAction.DeleteRemote -> "deleteRemote:$relativePath"
+        is PlannedSyncAction.DeleteLocal -> "deleteLocal:$relativePath"
+        is PlannedSyncAction.Conflict -> "conflict:$relativePath:$conflictType"
+    }
+}
+
+private suspend fun <T> runStageWithTimeout(
+    stageName: String,
+    timeoutMs: Long,
+    block: suspend () -> T,
+): T {
+    return try {
+        withTimeout(timeoutMs) {
+            block()
+        }
+    } catch (error: TimeoutCancellationException) {
+        throw SocketTimeoutException("Timed out while $stageName after ${timeoutMs}ms").apply {
+            initCause(error)
+        }
+    }
+}
+
+private fun computeConnectStageTimeoutMs(connectTimeoutMs: Int, readTimeoutMs: Int): Long {
+    return (connectTimeoutMs.toLong() + readTimeoutMs.toLong() + 15_000L).coerceAtLeast(45_000L)
+}
+
+private fun computePlanStageTimeoutMs(connectTimeoutMs: Int, readTimeoutMs: Int): Long {
+    return (connectTimeoutMs.toLong() + (readTimeoutMs.toLong() * 3) + 30_000L).coerceAtLeast(90_000L)
 }

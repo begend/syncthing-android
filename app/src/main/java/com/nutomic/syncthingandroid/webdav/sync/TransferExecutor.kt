@@ -51,6 +51,10 @@ class TransferExecutor @Inject constructor(
     ): TransferExecutionResult = withContext(Dispatchers.IO) {
         val existingCheckpoints = syncStateRepository.getCheckpointsForFolder(folderConfig.id)
             .associateBy { it.relativePath }
+        Log.i(
+            TAG,
+            "Executing plan folder=${folderConfig.id} actions=${plan.actions.size} existingCheckpoints=${existingCheckpoints.size} interActionDelayMs=$interActionDelayMs"
+        )
         val updatedEntries = mutableListOf<WebDAVSyncEntryEntity>()
         val removedPaths = mutableListOf<String>()
         val failureMessages = mutableListOf<String>()
@@ -64,17 +68,20 @@ class TransferExecutor @Inject constructor(
 
         for (action in plan.actions) {
             try {
+                Log.i(TAG, "Starting action ${describeAction(action)} for folder=${folderConfig.id}")
                 upsertCheckpoint(folderConfig, action, state = "IN_PROGRESS", retryable = false, errorSummary = null)
 
                 when (action) {
                     is PlannedSyncAction.Upload -> {
                         val result = executeUpload(folderConfig, action, webDAVClient)
                         result.onSuccess { outcome ->
+                            Log.i(TAG, "Upload succeeded ${action.relativePath} bytes=${outcome.bytesTransferred}")
                             successCount += 1
                             bytesTransferred += outcome.bytesTransferred
                             updatedEntries += outcome.entry
                             clearCheckpoint(folderConfig.id, action.relativePath)
                         }.onFailure { error ->
+                            Log.e(TAG, "Upload failed ${action.relativePath}: ${error.message}", error)
                             failedCount += 1
                             val classified = WebDAVError.classify(error)
                             if (classified.retryable) {
@@ -93,11 +100,13 @@ class TransferExecutor @Inject constructor(
                             existingCheckpoint = existingCheckpoints[action.relativePath],
                         )
                         result.onSuccess { outcome ->
+                            Log.i(TAG, "Download succeeded ${action.relativePath} bytes=${outcome.bytesTransferred}")
                             successCount += 1
                             bytesTransferred += outcome.bytesTransferred
                             updatedEntries += outcome.entry
                             clearCheckpoint(folderConfig.id, action.relativePath)
                         }.onFailure { error ->
+                            Log.e(TAG, "Download failed ${action.relativePath}: ${error.message}", error)
                             failedCount += 1
                             val classified = WebDAVError.classify(error)
                             if (classified.retryable) {
@@ -115,10 +124,12 @@ class TransferExecutor @Inject constructor(
                                 webDAVClient.deleteFile(normalizeRemotePath(action.remotePath))
                             }
                         result.onSuccess {
+                            Log.i(TAG, "DeleteRemote succeeded ${action.relativePath}")
                             successCount += 1
                             removedPaths += action.relativePath
                             clearCheckpoint(folderConfig.id, action.relativePath)
                         }.onFailure { error ->
+                            Log.e(TAG, "DeleteRemote failed ${action.relativePath}: ${error.message}", error)
                             failedCount += 1
                             val classified = WebDAVError.classify(error)
                             if (classified.retryable) {
@@ -132,10 +143,12 @@ class TransferExecutor @Inject constructor(
                     is PlannedSyncAction.DeleteLocal -> {
                         val result = executeDeleteLocal(action)
                         result.onSuccess {
+                            Log.i(TAG, "DeleteLocal succeeded ${action.relativePath}")
                             successCount += 1
                             removedPaths += action.relativePath
                             clearCheckpoint(folderConfig.id, action.relativePath)
                         }.onFailure { error ->
+                            Log.e(TAG, "DeleteLocal failed ${action.relativePath}: ${error.message}", error)
                             failedCount += 1
                             checkpointFailure(folderConfig, action, WebDAVError.classify(error))
                             failureMessages += "deleteLocal:${action.relativePath}:${error.message}"
@@ -149,6 +162,7 @@ class TransferExecutor @Inject constructor(
                     }
                 }
             } catch (cancelled: CancellationException) {
+                Log.w(TAG, "Action cancelled ${describeAction(action)}: ${cancelled.message}")
                 upsertCheckpoint(
                     folderConfig = folderConfig,
                     action = action,
@@ -158,6 +172,7 @@ class TransferExecutor @Inject constructor(
                 )
                 throw cancelled
             } catch (t: Throwable) {
+                Log.e(TAG, "Unexpected action failure ${describeAction(action)}: ${t.message}", t)
                 val classified = WebDAVError.classify(t)
                 failedCount += 1
                 if (classified.retryable) {
@@ -195,6 +210,7 @@ class TransferExecutor @Inject constructor(
         if (!localFile.exists() || !localFile.isFile) {
             return Result.failure(IllegalStateException("Local file missing: ${action.localPath}"))
         }
+        Log.i(TAG, "Uploading localPath=${localFile.absolutePath} remotePath=${action.remotePath} size=${localFile.length()}")
 
         return withRetry("upload:${action.relativePath}", shouldRetry = {
             WebDAVError.classify(it).retryable
@@ -238,7 +254,12 @@ class TransferExecutor @Inject constructor(
         tempFile.parentFile?.mkdirs()
 
         val existingLength = tempFile.takeIf { it.exists() }?.length() ?: 0L
+        Log.i(
+            TAG,
+            "Downloading remotePath=${action.remoteFile.path} localPath=${targetFile.absolutePath} remoteSize=${action.remoteFile.size} tempFile=${tempFile.absolutePath} existingTempBytes=$existingLength checkpointBytes=${existingCheckpoint?.transferredBytes}"
+        )
         if (existingLength > 0L && existingLength == action.remoteFile.size) {
+            Log.i(TAG, "Promoting completed temp download for ${action.relativePath}")
             return runCatching {
                 finalizeDownloadedFile(tempFile, targetFile, action.remoteFile.size)
                 FileOutcome(
@@ -363,6 +384,10 @@ class TransferExecutor @Inject constructor(
         action: PlannedSyncAction,
         classifiedError: WebDAVError,
     ) {
+        Log.w(
+            TAG,
+            "Checkpointing failure folder=${folderConfig.id} action=${describeAction(action)} retryable=${classifiedError.retryable} type=${classifiedError::class.simpleName} message=${classifiedError.messageText}"
+        )
         upsertCheckpoint(
             folderConfig = folderConfig,
             action = action,
@@ -447,4 +472,14 @@ class TransferExecutor @Inject constructor(
         val entry: WebDAVSyncEntryEntity,
         val bytesTransferred: Long,
     )
+
+    private fun describeAction(action: PlannedSyncAction): String {
+        return when (action) {
+            is PlannedSyncAction.Upload -> "upload:${action.relativePath}"
+            is PlannedSyncAction.Download -> "download:${action.relativePath}"
+            is PlannedSyncAction.DeleteRemote -> "deleteRemote:${action.relativePath}"
+            is PlannedSyncAction.DeleteLocal -> "deleteLocal:${action.relativePath}"
+            is PlannedSyncAction.Conflict -> "conflict:${action.relativePath}:${action.conflictType}"
+        }
+    }
 }

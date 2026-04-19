@@ -466,6 +466,7 @@
     <string name="webdav_folder_dialog_add">Add WebDAV folder</string>
     <string name="webdav_folder_dialog_edit">Edit WebDAV folder</string>
     <string name="webdav_base_url">Base URL</string>
+    <string name="webdav_http_risk_warning">HTTP sends credentials and file contents without transport encryption. Use it only on trusted networks or behind a VPN. HTTPS is recommended.</string>
     <string name="webdav_username">Username</string>
     <string name="webdav_password">Password</string>
     <string name="webdav_connect_timeout">Connect timeout (ms)</string>

@@ -468,6 +468,10 @@ else:
         '--always'
     ]).strip()
     syncthingVersion = syncthingVersion.decode().replace("rc", "preview")
+    if not re.search(r"v?\d+\.\d+\.\d+", syncthingVersion):
+        fallback_version = ".".join(get_app_version(project_dir).split(".")[:3])
+        print("No semver tag found from git describe, fallback to app version:", fallback_version)
+        syncthingVersion = "v" + fallback_version
 
 verify_native_version_matches_app(project_dir, syncthingVersion)
 
