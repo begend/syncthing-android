@@ -40,7 +40,10 @@ class SyncExecutionPolicyEvaluator @Inject constructor() {
         isInteractive: Boolean,
         batteryNotLow: Boolean,
     ): SyncExecutionDecision {
-        val isManualTrigger = triggerReason.equals("manual", ignoreCase = true)
+        val normalizedTriggerReason = triggerReason.trim().lowercase()
+        val isManualTrigger = normalizedTriggerReason == "manual" ||
+            normalizedTriggerReason.startsWith("manual_") ||
+            normalizedTriggerReason.startsWith("manual:")
 
         if (folderConfig.chargingOnly && !isCharging) {
             return SyncExecutionDecision(false, "Skipped: charging required")

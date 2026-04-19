@@ -15,6 +15,7 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.nutomic.syncthingandroid.R;
 import com.nutomic.syncthingandroid.SyncthingApp;
@@ -295,6 +296,7 @@ public class FolderListFragment extends ListFragment implements SyncthingService
         } else {
             activity.startService(intent);
         }
+        Toast.makeText(activity, R.string.webdav_sync_started, Toast.LENGTH_SHORT).show();
     }
 
     private void refreshWebDAVHeaderSummary() {

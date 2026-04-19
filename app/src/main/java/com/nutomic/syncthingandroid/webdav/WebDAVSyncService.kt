@@ -107,7 +107,11 @@ class WebDAVSyncService : Service() {
                 startFolderSync(folderId, triggerReason)
             }
 
-            WebDAVSyncAction.ACTION_SYNC_ALL -> startAllEligibleFolders()
+            WebDAVSyncAction.ACTION_SYNC_ALL -> {
+                val triggerReason = intent.getStringExtra(WebDAVSyncAction.EXTRA_TRIGGER_REASON)
+                    ?: DEFAULT_TRIGGER_REASON
+                startAllEligibleFolders(triggerReason)
+            }
 
             WebDAVSyncAction.ACTION_CANCEL_FOLDER -> {
                 val folderId = intent.getStringExtra(WebDAVSyncAction.EXTRA_FOLDER_ID)
@@ -128,7 +132,7 @@ class WebDAVSyncService : Service() {
         activeFolderJobs.remove(folderId)?.cancel()
     }
 
-    private fun startAllEligibleFolders() {
+    private fun startAllEligibleFolders(triggerReason: String) {
         serviceScope.launch {
             val enabledFolders = configRepository.getEnabledFolders()
             if (enabledFolders.isEmpty()) {
@@ -137,9 +141,9 @@ class WebDAVSyncService : Service() {
                 return@launch
             }
 
-            Log.i(TAG, "Starting ACTION_SYNC_ALL for ${enabledFolders.size} folders")
+            Log.i(TAG, "Starting ACTION_SYNC_ALL for ${enabledFolders.size} folders triggerReason=$triggerReason")
             enabledFolders.forEach { folder ->
-                startFolderSync(folder.id, "sync_all")
+                startFolderSync(folder.id, triggerReason)
             }
         }
     }
