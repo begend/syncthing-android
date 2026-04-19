@@ -28,6 +28,10 @@ class SyncStateRepository @Inject constructor(
         return transferCheckpointDao.observeCountForFolder(folderId)
     }
 
+    fun observeCheckpointsForFolder(folderId: String): Flow<List<WebDAVTransferCheckpointEntity>> {
+        return transferCheckpointDao.observeForFolder(folderId)
+    }
+
     suspend fun markInProgressCheckpointsInterrupted(folderId: String, errorSummary: String) {
         transferCheckpointDao.markState(
             folderId = folderId,

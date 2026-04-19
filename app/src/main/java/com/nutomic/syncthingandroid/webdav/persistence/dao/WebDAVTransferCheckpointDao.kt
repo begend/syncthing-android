@@ -18,6 +18,9 @@ interface WebDAVTransferCheckpointDao {
     @Query("SELECT COUNT(*) FROM webdav_transfer_checkpoint WHERE folder_id = :folderId")
     fun observeCountForFolder(folderId: String): Flow<Int>
 
+    @Query("SELECT * FROM webdav_transfer_checkpoint WHERE folder_id = :folderId ORDER BY updated_at DESC")
+    fun observeForFolder(folderId: String): Flow<List<WebDAVTransferCheckpointEntity>>
+
     @Query(
         """
         UPDATE webdav_transfer_checkpoint

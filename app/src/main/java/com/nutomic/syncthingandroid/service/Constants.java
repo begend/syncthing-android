@@ -51,6 +51,8 @@ public class Constants {
     public static final String PREF_START_SERVICE_ON_BOOT       = "always_run_in_background";
     public static final String PREF_BROADCAST_SERVICE_CONTROL   = "broadcast_service_control";
     public static final String PREF_ALLOW_OVERWRITE_FILES       = "allow_overwrite_files";
+    public static final String PREF_WEBDAV_AUTO_SYNC_ON_APP_OPEN = "webdav_auto_sync_on_app_open";
+    public static final String PREF_WEBDAV_LAST_AUTO_SYNC_TRIGGER_AT = "webdav_last_auto_sync_trigger_at";
 
     // Preferences - Syncthing Options
     public static final String PREF_WEBUI_USERNAME              = "webui_username";

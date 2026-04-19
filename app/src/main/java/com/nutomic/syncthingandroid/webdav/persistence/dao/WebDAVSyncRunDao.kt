@@ -21,6 +21,9 @@ interface WebDAVSyncRunDao {
     @Query("SELECT * FROM webdav_sync_run WHERE folder_id = :folderId ORDER BY started_at DESC LIMIT 1")
     fun observeLatestRunForFolder(folderId: String): Flow<WebDAVSyncRunEntity?>
 
+    @Query("SELECT * FROM webdav_sync_run ORDER BY started_at DESC LIMIT 1")
+    fun getLatestRun(): WebDAVSyncRunEntity?
+
     @Query("UPDATE webdav_sync_run SET state = :state, ended_at = :endedAt, error_summary = :errorSummary WHERE run_id = :runId")
     suspend fun updateState(runId: String, state: String, endedAt: Long?, errorSummary: String?): Int
 }

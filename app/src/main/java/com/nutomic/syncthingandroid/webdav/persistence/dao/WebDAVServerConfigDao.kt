@@ -18,6 +18,9 @@ interface WebDAVServerConfigDao {
     @Query("SELECT * FROM webdav_server_config ORDER BY updated_at DESC")
     fun observeAll(): Flow<List<WebDAVServerConfigEntity>>
 
+    @Query("SELECT COUNT(*) FROM webdav_server_config")
+    fun getCount(): Int
+
     @Query("DELETE FROM webdav_server_config WHERE id = :id")
     suspend fun deleteById(id: String): Int
 }

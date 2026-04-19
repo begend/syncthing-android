@@ -201,6 +201,19 @@ private fun DrawerContent(
 
                 item {
                     DrawerItem(
+                        icon = { Icon(Icons.Outlined.Autorenew, null) },
+                        label = { Text(stringResource(R.string.category_webdav_sync)) },
+                        onClick = {
+                            val intent = Intent(activity, SettingsActivity::class.java).apply {
+                                putExtra(SettingsActivity.EXTRA_START_DESTINATION, "WebDAVSync")
+                            }
+                            activity.startActivity(intent)
+                            activity.closeDrawer()
+                        },
+                    )
+                }
+                item {
+                    DrawerItem(
                         icon = { Icon(Icons.Outlined.ImportExport, null) },
                         label = { Text(stringResource(R.string.category_backup)) },
                         onClick = {

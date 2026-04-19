@@ -185,11 +185,12 @@ class WebDAVSyncService : Service() {
                     ?: error("Folder config not found for $folderId")
                 val server = configRepository.getServerConfig(folder.serverId)
                     ?: error("Server config not found for ${folder.serverId}")
+                val runtimeOptions = WebDAVFolderRuntimeOptionsStore.load(applicationContext, folder.id)
                 val eInkProfile = eInkProfileResolver.resolve(applicationContext)
                 val pendingCheckpoints = syncStateRepository.getCheckpointsForFolder(folderId)
                 Log.i(
                     TAG,
-                    "Loaded folder config folderId=${folder.id} localPath=${folder.localPath} remotePath=${folder.remotePath} enabled=${folder.enabled} serverUrl=${server.baseUrl} pendingCheckpoints=${pendingCheckpoints.size}"
+                    "Loaded folder config folderId=${folder.id} localPath=${folder.localPath} remotePath=${folder.remotePath} enabled=${folder.enabled} serverUrl=${server.baseUrl} pendingCheckpoints=${pendingCheckpoints.size} allowedExtensions=${runtimeOptions.allowedExtensions} maxFileSizeBytes=${runtimeOptions.maxFileSizeBytes}"
                 )
                 val executionDecision = syncExecutionPolicyEvaluator.evaluate(
                     context = applicationContext,
@@ -280,7 +281,7 @@ class WebDAVSyncService : Service() {
                 )
 
                 val syncPlan = runStageWithTimeout("planning WebDAV sync", planTimeoutMs) {
-                    syncPlanner.planFolderSync(folder, existingEntries, webDAVClient).getOrThrow()
+                    syncPlanner.planFolderSync(folder, existingEntries, webDAVClient, runtimeOptions).getOrThrow()
                 }
                 Log.i(TAG, "WebDAV sync plan for folder=${folder.id}: ${syncPlan.summary()}")
                 Log.i(

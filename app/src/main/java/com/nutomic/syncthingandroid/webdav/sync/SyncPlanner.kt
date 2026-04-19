@@ -2,6 +2,7 @@ package com.nutomic.syncthingandroid.webdav.sync
 
 import android.util.Log
 import com.nutomic.syncthingandroid.webdav.WebDAVClient
+import com.nutomic.syncthingandroid.webdav.WebDAVFolderRuntimeOptions
 import com.nutomic.syncthingandroid.webdav.model.ConflictType
 import com.nutomic.syncthingandroid.webdav.model.WebDAVFile
 import com.nutomic.syncthingandroid.webdav.persistence.entity.WebDAVFolderConfigEntity
@@ -22,14 +23,20 @@ class SyncPlanner @Inject constructor() {
         folderConfig: WebDAVFolderConfigEntity,
         previousEntries: List<WebDAVSyncEntryEntity>,
         webDAVClient: WebDAVClient,
+        runtimeOptions: WebDAVFolderRuntimeOptions = WebDAVFolderRuntimeOptions(),
     ): Result<SyncPlan> = withContext(Dispatchers.IO) {
         try {
             val localFiles = scanLocalFiles(folderConfig.localPath)
+                .filter { (relativePath, local) -> runtimeOptions.shouldInclude(relativePath, local.size) }
             val remoteFiles = scanRemoteFiles(folderConfig.remotePath, webDAVClient).getOrThrow()
-            val snapshotMap = previousEntries.associateBy { it.relativePath }
+                .filter { (relativePath, remote) -> runtimeOptions.shouldInclude(relativePath, remote.size) }
+            val filteredPreviousEntries = previousEntries.filter { entry ->
+                runtimeOptions.shouldInclude(entry.relativePath, entry.remoteSize ?: entry.localSize)
+            }
+            val snapshotMap = filteredPreviousEntries.associateBy { it.relativePath }
             Log.i(
                 TAG,
-                "Planning folder=${folderConfig.id} localRoot=${folderConfig.localPath} remoteRoot=${folderConfig.remotePath} localFiles=${localFiles.size} remoteFiles=${remoteFiles.size} previousEntries=${previousEntries.size}"
+                "Planning folder=${folderConfig.id} localRoot=${folderConfig.localPath} remoteRoot=${folderConfig.remotePath} localFiles=${localFiles.size} remoteFiles=${remoteFiles.size} previousEntries=${filteredPreviousEntries.size} filters.extensions=${runtimeOptions.allowedExtensions} filters.maxBytes=${runtimeOptions.maxFileSizeBytes}"
             )
 
             val allPaths = linkedSetOf<String>()
@@ -59,7 +66,7 @@ class SyncPlanner @Inject constructor() {
                     folderId = folderConfig.id,
                     localFileCount = localFiles.size,
                     remoteFileCount = remoteFiles.size,
-                    knownEntryCount = previousEntries.size,
+                    knownEntryCount = filteredPreviousEntries.size,
                     actions = actions,
                 )
             )

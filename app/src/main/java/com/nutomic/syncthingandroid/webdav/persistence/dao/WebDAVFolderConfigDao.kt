@@ -18,11 +18,17 @@ interface WebDAVFolderConfigDao {
     @Query("SELECT * FROM webdav_folder_config ORDER BY local_path ASC")
     fun observeAll(): Flow<List<WebDAVFolderConfigEntity>>
 
+    @Query("SELECT COUNT(*) FROM webdav_folder_config")
+    fun getCount(): Int
+
     @Query("SELECT * FROM webdav_folder_config WHERE enabled = 1 ORDER BY local_path ASC")
     fun observeEnabledFolders(): Flow<List<WebDAVFolderConfigEntity>>
 
     @Query("SELECT * FROM webdav_folder_config WHERE enabled = 1 ORDER BY local_path ASC")
     suspend fun getEnabledFolders(): List<WebDAVFolderConfigEntity>
+
+    @Query("SELECT COUNT(*) FROM webdav_folder_config WHERE enabled = 1")
+    fun getEnabledFolderCount(): Int
 
     @Query("DELETE FROM webdav_folder_config WHERE id = :id")
     suspend fun deleteById(id: String): Int

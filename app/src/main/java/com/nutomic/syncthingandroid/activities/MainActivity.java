@@ -56,6 +56,8 @@ import com.nutomic.syncthingandroid.service.SyncthingServiceBinder;
 import com.nutomic.syncthingandroid.util.ConfigRouter;
 import com.nutomic.syncthingandroid.util.PermissionUtil;
 import com.nutomic.syncthingandroid.util.Util;
+import com.nutomic.syncthingandroid.webdav.WebDAVSyncAction;
+import com.nutomic.syncthingandroid.webdav.WebDAVSyncService;
 
 import java.util.Date;
 import java.util.List;
@@ -91,6 +93,7 @@ public class MainActivity extends SyncthingActivity
      */
     private static final long USAGE_REPORTING_DIALOG_DELAY = TimeUnit.DAYS.toMillis(3);
     private static final Boolean DEBUG_FORCE_USAGE_REPORTING_DIALOG = false;
+    private static final long WEBDAV_AUTO_SYNC_APP_OPEN_COOLDOWN_MS = TimeUnit.MINUTES.toMillis(15);
 
     private AlertDialog mUsageReportingDialog;
     private Dialog mRestartDialog;
@@ -279,7 +282,8 @@ public class MainActivity extends SyncthingActivity
      * Updates the ViewPager to show tabs depending on the service state.
      */
     private void updateViewPager() {
-        final int numPages = 3;
+        final boolean expertModeEnabled = mPreferences.getBoolean(Constants.PREF_EXPERT_MODE, false);
+        final int numPages = expertModeEnabled ? 3 : 1;
         FragmentStatePagerAdapter mSectionsPagerAdapter =
                 new FragmentStatePagerAdapter(getSupportFragmentManager()) {
 
@@ -289,9 +293,9 @@ public class MainActivity extends SyncthingActivity
                     case FOLDER_FRAGMENT_ID:
                         return mFolderListFragment;
                     case DEVICE_FRAGMENT_ID:
-                        return mDeviceListFragment;
+                        return expertModeEnabled ? mDeviceListFragment : mFolderListFragment;
                     case STATUS_FRAGMENT_ID:
-                        return mStatusFragment;
+                        return expertModeEnabled ? mStatusFragment : mFolderListFragment;
                     default:
                         return null;
                 }
@@ -323,6 +327,9 @@ public class MainActivity extends SyncthingActivity
         };
         try {
             mViewPager.setAdapter(mSectionsPagerAdapter);
+            if (!expertModeEnabled) {
+                mViewPager.setCurrentItem(FOLDER_FRAGMENT_ID, false);
+            }
         } catch (IllegalStateException e) {
             /**
              * IllegalStateException happens due to a bug in FragmentStatePagerAdapter.
@@ -362,6 +369,8 @@ public class MainActivity extends SyncthingActivity
             mSyncthingService.evaluateRunConditions();
         }
 
+        maybeTriggerWebDAVAutoSyncOnResume();
+
         startUIRefreshHandler();
 
         // Update FAB visibility in case settings changed
@@ -377,6 +386,38 @@ public class MainActivity extends SyncthingActivity
         }
         
         super.onResume();
+    }
+
+    private void maybeTriggerWebDAVAutoSyncOnResume() {
+        if (mPreferences == null) {
+            return;
+        }
+        boolean autoSyncEnabled = mPreferences.getBoolean(Constants.PREF_WEBDAV_AUTO_SYNC_ON_APP_OPEN, true);
+        if (!autoSyncEnabled) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long lastTriggerAt = mPreferences.getLong(Constants.PREF_WEBDAV_LAST_AUTO_SYNC_TRIGGER_AT, 0L);
+        if (now - lastTriggerAt < WEBDAV_AUTO_SYNC_APP_OPEN_COOLDOWN_MS) {
+            if (ENABLE_VERBOSE_LOG) {
+                Log.d(TAG, "Skipping WebDAV auto sync on app open due to cooldown");
+            }
+            return;
+        }
+
+        Intent intent = new Intent(this, WebDAVSyncService.class);
+        intent.setAction(WebDAVSyncAction.ACTION_SYNC_ALL);
+        intent.putExtra(WebDAVSyncAction.EXTRA_TRIGGER_REASON, "auto_app_open");
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent);
+        } else {
+            startService(intent);
+        }
+
+        mPreferences.edit().putLong(Constants.PREF_WEBDAV_LAST_AUTO_SYNC_TRIGGER_AT, now).apply();
+        Log.i(TAG, "Triggered WebDAV auto sync on app open");
     }
 
     @Override

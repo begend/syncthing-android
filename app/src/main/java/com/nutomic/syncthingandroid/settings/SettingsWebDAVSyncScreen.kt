@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -37,7 +38,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.EntryProviderScope
 import com.nutomic.syncthingandroid.R
+import com.nutomic.syncthingandroid.service.Constants
 import com.nutomic.syncthingandroid.webdav.WebDAVClient
+import com.nutomic.syncthingandroid.webdav.WebDAVFolderRuntimeOptions
+import com.nutomic.syncthingandroid.webdav.WebDAVFolderRuntimeOptionsStore
 import com.nutomic.syncthingandroid.webdav.WebDAVSyncAction
 import com.nutomic.syncthingandroid.webdav.WebDAVSyncService
 import com.nutomic.syncthingandroid.webdav.persistence.entity.WebDAVFolderConfigEntity
@@ -49,6 +53,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.zhanghai.compose.preference.Preference
+import me.zhanghai.compose.preference.SwitchPreference
+import me.zhanghai.compose.preference.rememberPreferenceState
 import java.util.UUID
 
 fun EntryProviderScope<SettingsRoute>.settingsWebDAVSyncEntry() {
@@ -65,6 +71,7 @@ fun SettingsWebDAVSyncScreen() {
     val scope = rememberCoroutineScope()
     val serverConfigs by repo.observeServerConfigs().collectAsState(initial = emptyList())
     val folderConfigs by repo.observeAllFolders().collectAsState(initial = emptyList())
+    val autoSyncOnAppOpen = rememberPreferenceState(Constants.PREF_WEBDAV_AUTO_SYNC_ON_APP_OPEN, true)
 
     var editingServer by remember { mutableStateOf<WebDAVServerConfigEntity?>(null) }
     var editingFolder by remember { mutableStateOf<WebDAVFolderConfigEntity?>(null) }
@@ -75,6 +82,14 @@ fun SettingsWebDAVSyncScreen() {
     SettingsScaffold(
         title = stringResource(R.string.category_webdav_sync),
     ) {
+        item {
+            SwitchPreference(
+                value = autoSyncOnAppOpen.value,
+                onValueChange = { autoSyncOnAppOpen.value = it },
+                title = { Text(stringResource(R.string.webdav_auto_sync_on_app_open)) },
+                summary = { Text(stringResource(R.string.webdav_auto_sync_on_app_open_summary)) },
+            )
+        }
         item {
             Preference(
                 title = { Text(stringResource(R.string.webdav_sync_now_all)) },
@@ -145,13 +160,8 @@ fun SettingsWebDAVSyncScreen() {
                     onClick = { editingFolder = folder },
                 )
                 Preference(
-                    title = { Text(stringResource(R.string.webdav_view_status_details)) },
-                    summary = { Text(stringResource(R.string.webdav_view_status_details_summary)) },
-                    onClick = { detailsFolder = folder },
-                )
-                Preference(
                     title = { Text(stringResource(R.string.webdav_sync_now_folder)) },
-                    summary = { Text(folder.localPath) },
+                    summary = { Text("${folder.localPath} ↔ ${folder.remotePath}") },
                     enabled = folder.enabled,
                     onClick = {
                         startWebDAVService(
@@ -162,6 +172,14 @@ fun SettingsWebDAVSyncScreen() {
                         Toast.makeText(context, context.getString(R.string.webdav_sync_started), Toast.LENGTH_SHORT).show()
                     },
                 )
+                Preference(
+                    title = { Text(stringResource(R.string.webdav_view_status_details)) },
+                    summary = { Text(stringResource(R.string.webdav_view_status_details_summary)) },
+                    onClick = { detailsFolder = folder },
+                )
+                if (index < folderConfigs.lastIndex) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                }
             }
         }
     }
@@ -190,19 +208,25 @@ fun SettingsWebDAVSyncScreen() {
     if (isAddingFolder || editingFolder != null) {
         WebDAVFolderDialog(
             initial = editingFolder,
+            initialRuntimeOptions = WebDAVFolderRuntimeOptionsStore.load(
+                context,
+                editingFolder?.id ?: "new-folder",
+            ),
             servers = serverConfigs,
             onDismiss = {
                 isAddingFolder = false
                 editingFolder = null
             },
-            onSave = { folder ->
+            onSave = { folder, runtimeOptions ->
                 scope.launch { repo.saveFolderConfig(folder) }
+                WebDAVFolderRuntimeOptionsStore.save(context, folder.id, runtimeOptions)
                 isAddingFolder = false
                 editingFolder = null
             },
             onDelete = editingFolder?.let {
                 {
                     scope.launch { repo.deleteFolderConfig(it.id) }
+                    WebDAVFolderRuntimeOptionsStore.clear(context, it.id)
                     editingFolder = null
                 }
             },
@@ -223,8 +247,11 @@ private fun buildFolderSummary(
     folder: WebDAVFolderConfigEntity,
     syncStateRepository: com.nutomic.syncthingandroid.webdav.persistence.repository.SyncStateRepository,
 ): String {
+    val context = LocalContext.current
     val latestRun by syncStateRepository.observeLatestRunForFolder(folder.id).collectAsState(initial = null)
     val checkpointCount by syncStateRepository.observeCheckpointCountForFolder(folder.id).collectAsState(initial = 0)
+    val checkpoints by syncStateRepository.observeCheckpointsForFolder(folder.id).collectAsState(initial = emptyList())
+    val runtimeOptions = WebDAVFolderRuntimeOptionsStore.load(context, folder.id)
 
     val statusText = latestRun?.let { latest ->
         val stateLabel = formatRunState(latest)
@@ -248,7 +275,39 @@ private fun buildFolderSummary(
         stringResource(R.string.webdav_disabled)
     }
 
-    return "${folder.remotePath} • $enabledText • $statusText$recoveryText"
+    val filterSummary = buildList {
+        if (runtimeOptions.allowedExtensions.isNotEmpty()) {
+            add(
+                stringResource(
+                    R.string.webdav_filter_extensions_summary_short,
+                    runtimeOptions.extensionsAsInput(),
+                )
+            )
+        }
+        runtimeOptions.maxFileSizeBytes?.takeIf { it > 0L }?.let { maxBytes ->
+            add(
+                stringResource(
+                    R.string.webdav_filter_max_size_summary_short,
+                    maxBytes / (1024L * 1024L),
+                )
+            )
+        }
+    }.joinToString(" • ")
+
+    val filterText = if (filterSummary.isNotBlank()) {
+        " • $filterSummary"
+    } else {
+        ""
+    }
+
+    val progressText = buildRealtimeProgressSummary(checkpoints, latestRun)
+    val progressSuffix = if (progressText != null) {
+        " • $progressText"
+    } else {
+        ""
+    }
+
+    return "${folder.remotePath} • $enabledText$filterText • $statusText$progressSuffix$recoveryText"
 }
 
 @Composable
@@ -473,9 +532,10 @@ private fun WebDAVServerDialog(
 @Composable
 private fun WebDAVFolderDialog(
     initial: WebDAVFolderConfigEntity?,
+    initialRuntimeOptions: WebDAVFolderRuntimeOptions,
     servers: List<WebDAVServerConfigEntity>,
     onDismiss: () -> Unit,
-    onSave: (WebDAVFolderConfigEntity) -> Unit,
+    onSave: (WebDAVFolderConfigEntity, WebDAVFolderRuntimeOptions) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
     val context = LocalContext.current
@@ -488,9 +548,16 @@ private fun WebDAVFolderDialog(
     var wifiOnly by remember(initial) { mutableStateOf(initial?.wifiOnly ?: false) }
     var chargingOnly by remember(initial) { mutableStateOf(initial?.chargingOnly ?: false) }
     var batteryNotLow by remember(initial) { mutableStateOf(initial?.batteryNotLow ?: false) }
+    var allowedExtensions by remember(initialRuntimeOptions) {
+        mutableStateOf(initialRuntimeOptions.extensionsAsInput())
+    }
+    var maxFileSizeMb by remember(initialRuntimeOptions) {
+        mutableStateOf(initialRuntimeOptions.maxFileSizeMbAsInput())
+    }
     var localPathError by remember { mutableStateOf<String?>(null) }
     var remotePathError by remember { mutableStateOf<String?>(null) }
     var serverError by remember { mutableStateOf<String?>(null) }
+    var filterError by remember { mutableStateOf<String?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
@@ -571,6 +638,36 @@ private fun WebDAVFolderDialog(
                 LabeledCheckbox(stringResource(R.string.webdav_wifi_only), wifiOnly) { wifiOnly = it }
                 LabeledCheckbox(stringResource(R.string.webdav_charging_only), chargingOnly) { chargingOnly = it }
                 LabeledCheckbox(stringResource(R.string.webdav_battery_not_low), batteryNotLow) { batteryNotLow = it }
+                OutlinedTextField(
+                    value = allowedExtensions,
+                    onValueChange = {
+                        allowedExtensions = it
+                        filterError = null
+                    },
+                    label = { Text(stringResource(R.string.webdav_allowed_extensions)) },
+                    supportingText = {
+                        Text(
+                            filterError
+                                ?: stringResource(R.string.webdav_allowed_extensions_summary)
+                        )
+                    },
+                    isError = filterError != null,
+                )
+                OutlinedTextField(
+                    value = maxFileSizeMb,
+                    onValueChange = {
+                        maxFileSizeMb = it
+                        filterError = null
+                    },
+                    label = { Text(stringResource(R.string.webdav_max_file_size_mb)) },
+                    supportingText = {
+                        Text(
+                            filterError
+                                ?: stringResource(R.string.webdav_max_file_size_mb_summary)
+                        )
+                    },
+                    isError = filterError != null,
+                )
             }
         },
         confirmButton = {
@@ -586,6 +683,15 @@ private fun WebDAVFolderDialog(
                     remotePathError = validated.remotePathError
                     serverError = validated.serverError
                     if (!validated.isValid) return@TextButton
+                    val runtimeOptions = runCatching {
+                        WebDAVFolderRuntimeOptions.fromInputs(
+                            extensionsInput = allowedExtensions,
+                            maxFileSizeMbInput = maxFileSizeMb,
+                        )
+                    }.getOrElse {
+                        filterError = context.getString(R.string.webdav_error_filter_invalid)
+                        return@TextButton
+                    }
 
                     onSave(
                         WebDAVFolderConfigEntity(
@@ -604,7 +710,8 @@ private fun WebDAVFolderDialog(
                             profileId = initial?.profileId,
                             lastSyncAttemptAt = initial?.lastSyncAttemptAt,
                             lastSyncSuccessAt = initial?.lastSyncSuccessAt,
-                        )
+                        ),
+                        runtimeOptions,
                     )
                 },
             ) {
@@ -785,13 +892,10 @@ private fun WebDAVFolderStatusDialog(
 ) {
     val latestRun by syncStateRepository.observeLatestRunForFolder(folder.id).collectAsState(initial = null)
     val checkpointCount by syncStateRepository.observeCheckpointCountForFolder(folder.id).collectAsState(initial = 0)
-    var checkpoints by remember(folder.id) { mutableStateOf<List<WebDAVTransferCheckpointEntity>>(emptyList()) }
+    val checkpoints by syncStateRepository.observeCheckpointsForFolder(folder.id).collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-
-    LaunchedEffect(folder.id) {
-        checkpoints = syncStateRepository.getCheckpointsForFolder(folder.id)
-    }
+    val progressText = buildRealtimeProgressSummary(checkpoints, latestRun)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -804,6 +908,9 @@ private fun WebDAVFolderStatusDialog(
                 Text("${stringResource(R.string.webdav_status_last_reason)}: ${latestRun?.errorSummary ?: stringResource(R.string.webdav_status_no_error)}")
                 Text("${stringResource(R.string.webdav_status_bytes_transferred)}: ${latestRun?.bytesTransferred ?: 0L} B")
                 Text("${stringResource(R.string.webdav_status_pending_recovery_label)}: $checkpointCount")
+                progressText?.let {
+                    Text("${stringResource(R.string.webdav_status_progress)}: $it")
+                }
                 if (checkpoints.isNotEmpty()) {
                     checkpoints.take(3).forEach { checkpoint ->
                         Text(
@@ -822,9 +929,6 @@ private fun WebDAVFolderStatusDialog(
                         action = WebDAVSyncAction.ACTION_SYNC_FOLDER,
                         folderId = folder.id,
                     )
-                    scope.launch {
-                        checkpoints = syncStateRepository.getCheckpointsForFolder(folder.id)
-                    }
                     onDismiss()
                 },
             ) {
@@ -861,5 +965,40 @@ private suspend fun testWebDAVConnection(
         }
     } finally {
         client.disconnect()
+    }
+}
+
+private fun buildRealtimeProgressSummary(
+    checkpoints: List<WebDAVTransferCheckpointEntity>,
+    latestRun: WebDAVSyncRunEntity?,
+): String? {
+    val inProgressCheckpoints = checkpoints.filter { it.state == "IN_PROGRESS" }
+    if (inProgressCheckpoints.isNotEmpty()) {
+        val transferredBytes = inProgressCheckpoints.sumOf { it.transferredBytes ?: 0L }
+        val totalBytes = inProgressCheckpoints.sumOf { it.totalBytes ?: 0L }
+        val totalItems = checkpoints.size.coerceAtLeast(inProgressCheckpoints.size)
+        val itemText = "${inProgressCheckpoints.size}/$totalItems files"
+        val byteText = if (totalBytes > 0L) {
+            "${formatByteCount(transferredBytes)} / ${formatByteCount(totalBytes)}"
+        } else {
+            "${formatByteCount(transferredBytes)} transferred"
+        }
+        return "$itemText • $byteText"
+    }
+
+    if (latestRun?.state == "RUNNING") {
+        return "Running"
+    }
+
+    return null
+}
+
+private fun formatByteCount(bytes: Long): String {
+    val absBytes = bytes.coerceAtLeast(0L)
+    return when {
+        absBytes < 1024L -> "${absBytes} B"
+        absBytes < 1024L * 1024L -> "${absBytes / 1024L} KB"
+        absBytes < 1024L * 1024L * 1024L -> "${absBytes / (1024L * 1024L)} MB"
+        else -> "${absBytes / (1024L * 1024L * 1024L)} GB"
     }
 }
